@@ -1,8 +1,7 @@
-const axios = require('axios').default;
-const tough = require('tough-cookie');
-const wrapper = require('axios-cookiejar-support').wrapper;
-
+const request = require('request-retry-dayjs');
 const cheerio = require('cheerio');
+
+// TODO: UPGRADE TO AXIOS
 
 /**
  * Signs in to a website through Steam
@@ -16,26 +15,33 @@ module.exports = function (url, cookies, callback) {
     let jar;
 
     if (Array.isArray(cookies)) {
-        jar = new tough.CookieJar();
+        jar = request.jar();
 
         cookies.forEach(function (cookieStr) {
-            const cookie = tough.Cookie.parse(cookieStr);
-            jar = jar.setCookieSync(cookie, 'https://steamcommunity.com');
+            jar.setCookie(
+                request.cookie(cookieStr),
+                'https://steamcommunity.com'
+            );
         });
     } else {
         jar = cookies;
     }
 
-    const client = wrapper(axios.create({ jar }));
-
     // Go to path for signing in through Steam and follow redirects
 
-    client({
-        method: 'GET',
-        url: url,
-    })
-        .then((response) => {
-            if (response.request.host !== 'steamcommunity.com') {
+    request(
+        {
+            method: 'GET',
+            url: url,
+            jar: jar,
+            followAllRedirects: true,
+        },
+        function (err, response, body) {
+            if (err) {
+                return callback(err);
+            }
+
+            if (response.request.uri.host !== 'steamcommunity.com') {
                 return callback(
                     new Error(
                         'Was not redirected to steam, make sure the url is correct'
@@ -43,7 +49,6 @@ module.exports = function (url, cookies, callback) {
                 );
             }
 
-            const body = response.data;
             const $ = cheerio.load(body);
 
             // If we are given a login form, then we are not signed in to steam
@@ -71,24 +76,24 @@ module.exports = function (url, cookies, callback) {
 
             // Send form to steam and follow redirects back to the website we are signing in to
 
-            client({
-                method: 'POST',
-                url: 'https://steamcommunity.com/openid/login',
-                data: formData,
-            })
-                .then((response) => {
-                    // Return cookie jar
-                    callback(null, jar);
-                })
-                .catch((err) => {
+            request(
+                {
+                    method: 'POST',
+                    url: 'https://steamcommunity.com/openid/login',
+                    form: formData,
+                    jar: jar,
+                    followAllRedirects: true,
+                },
+                function (err, response, body) {
                     if (err) {
-                        callback(err);
+                        return callback(err);
                     }
-                });
-        })
-        .catch((err) => {
-            if (err) {
-                callback(err);
-            }
-        });
+
+                    // Return cookie jar
+
+                    callback(null, jar);
+                }
+            ).end();
+        }
+    ).end();
 };
