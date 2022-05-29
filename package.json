@@ -1,5 +1,5 @@
 {
-  "name": "steam-openid-login-dayjs",
+  "name": "@tf2autobot/steam-openid-login",
   "version": "1.1.1",
   "description": "Sign in to websites with Steam OpenID - Originally from Nicklason",
   "main": "index.js",
