@@ -1,6 +1,6 @@
 {
   "name": "@tf2autobot/steam-openid-login",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Sign in to websites with Steam OpenID - Originally from Nicklason",
   "main": "index.js",
   "scripts": {
