@@ -35,7 +35,7 @@ module.exports = function (url, cookies, callback) {
         url: url,
     })
         .then((response) => {
-            if (response.request.uri.host !== 'steamcommunity.com') {
+            if (response.request.host !== 'steamcommunity.com') {
                 return callback(
                     new Error(
                         'Was not redirected to steam, make sure the url is correct'
