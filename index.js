@@ -20,7 +20,7 @@ module.exports = function (url, cookies, callback) {
 
         cookies.forEach(function (cookieStr) {
             const cookie = tough.Cookie.parse(cookieStr);
-            jar.setCookie(cookie, 'https://steamcommunity.com');
+            jar.setCookieSync(cookie, 'https://steamcommunity.com');
         });
     } else {
         jar = cookies;
