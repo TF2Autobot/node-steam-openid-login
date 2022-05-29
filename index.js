@@ -1,4 +1,7 @@
-const request = require('request-retry-dayjs');
+const axios = require('axios').default;
+const tough = require('tough-cookie');
+const wrapper = require('axios-cookiejar-support').wrapper;
+
 const cheerio = require('cheerio');
 
 /**
@@ -13,32 +16,25 @@ module.exports = function (url, cookies, callback) {
     let jar;
 
     if (Array.isArray(cookies)) {
-        jar = request.jar();
+        jar = new tough.CookieJar();
 
         cookies.forEach(function (cookieStr) {
-            jar.setCookie(
-                request.cookie(cookieStr),
-                'https://steamcommunity.com'
-            );
+            const cookie = tough.Cookie.parse(cookieStr);
+            jar.setCookie(cookie, 'https://steamcommunity.com');
         });
     } else {
         jar = cookies;
     }
 
+    const client = wrapper(axios.create({ jar }));
+
     // Go to path for signing in through Steam and follow redirects
 
-    request(
-        {
-            method: 'GET',
-            url: url,
-            jar: jar,
-            followAllRedirects: true,
-        },
-        function (err, response, body) {
-            if (err) {
-                return callback(err);
-            }
-
+    client({
+        method: 'GET',
+        url: url,
+    })
+        .then((response) => {
             if (response.request.uri.host !== 'steamcommunity.com') {
                 return callback(
                     new Error(
@@ -47,6 +43,7 @@ module.exports = function (url, cookies, callback) {
                 );
             }
 
+            const body = response.data;
             const $ = cheerio.load(body);
 
             // If we are given a login form, then we are not signed in to steam
@@ -74,24 +71,24 @@ module.exports = function (url, cookies, callback) {
 
             // Send form to steam and follow redirects back to the website we are signing in to
 
-            request(
-                {
-                    method: 'POST',
-                    url: 'https://steamcommunity.com/openid/login',
-                    form: formData,
-                    jar: jar,
-                    followAllRedirects: true,
-                },
-                function (err, response, body) {
-                    if (err) {
-                        return callback(err);
-                    }
-
+            client({
+                method: 'POST',
+                url: 'https://steamcommunity.com/openid/login',
+                data: formData,
+            })
+                .then((response) => {
                     // Return cookie jar
-
                     callback(null, jar);
-                }
-            ).end();
-        }
-    ).end();
+                })
+                .catch((err) => {
+                    if (err) {
+                        callback(err);
+                    }
+                });
+        })
+        .catch((err) => {
+            if (err) {
+                callback(err);
+            }
+        });
 };
