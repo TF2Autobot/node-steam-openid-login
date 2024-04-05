@@ -19,6 +19,6 @@
   "homepage": "https://github.com/idinium96/node-steam-openid-login-2#readme",
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
-    "request-retry-dayjs": "^1.1.7"
+    "request-retry-dayjs": "^1.1.8"
   }
 }
