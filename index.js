@@ -1,7 +1,6 @@
-const request = require('request-retry-dayjs');
+const { CookieJar } = require('tough-cookie');
+const fetchCookie = require('fetch-cookie');
 const cheerio = require('cheerio');
-
-// TODO: UPGRADE TO AXIOS
 
 /**
  * Signs in to a website through Steam
@@ -15,40 +14,34 @@ module.exports = function (url, cookies, callback) {
     let jar;
 
     if (Array.isArray(cookies)) {
-        jar = request.jar();
+        // Replaced request.jar() with native tough-cookie CookieJar
+        jar = new CookieJar();
 
-        cookies.forEach(function (cookieStr) {
-            jar.setCookie(
-                request.cookie(cookieStr),
-                'https://steamcommunity.com'
-            );
+        cookies.forEach(cookieStr => {
+            jar.setCookieSync(cookieStr, 'https://steamcommunity.com');
         });
     } else {
         jar = cookies;
     }
 
+    // Wrap native fetch with the cookie jar
+    const fetchWithCookie = fetchCookie(fetch, jar);
+
     // Go to path for signing in through Steam and follow redirects
+    (async () => {
+        try {
+            const response = await fetchWithCookie(url, {
+                method: 'GET',
+                redirect: 'follow' // Replicates followAllRedirects: true
+            });
 
-    request(
-        {
-            method: 'GET',
-            url: url,
-            jar: jar,
-            followAllRedirects: true,
-        },
-        function (err, response, body) {
-            if (err) {
-                return callback(err);
+            // Replaces response.request.uri.host with fetch equivalent
+            const finalUrl = new URL(response.url);
+            if (finalUrl.hostname !== 'steamcommunity.com') {
+                return callback(new Error('Was not redirected to steam, make sure the url is correct'));
             }
 
-            if (response.request.uri.host !== 'steamcommunity.com') {
-                return callback(
-                    new Error(
-                        'Was not redirected to steam, make sure the url is correct'
-                    )
-                );
-            }
-
+            const body = await response.text();
             const $ = cheerio.load(body);
 
             // If we are given a login form, then we are not signed in to steam
@@ -75,25 +68,24 @@ module.exports = function (url, cookies, callback) {
             });
 
             // Send form to steam and follow redirects back to the website we are signing in to
-
-            request(
-                {
-                    method: 'POST',
-                    url: 'https://steamcommunity.com/openid/login',
-                    form: formData,
-                    jar: jar,
-                    followAllRedirects: true,
+            const postResponse = await fetchWithCookie('https://steamcommunity.com/openid/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                function (err, response, body) {
-                    if (err) {
-                        return callback(err);
-                    }
+                // Converts the original formData object into a URL-encoded string
+                body: new URLSearchParams(formData).toString(),
+                redirect: 'follow'
+            });
 
-                    // Return cookie jar
+            if (!postResponse.ok) {
+                return callback(new Error(`Failed to post to steam: ${postResponse.statusText}`));
+            }
 
-                    callback(null, jar);
-                }
-            ).end();
+            // Return cookie jar
+            callback(null, jar);
+        } catch (err) {
+            callback(err);
         }
-    ).end();
+    })();
 };
