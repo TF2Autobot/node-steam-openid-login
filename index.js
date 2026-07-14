@@ -1,5 +1,5 @@
 const { CookieJar } = require('tough-cookie');
-const fetchCookie = require('fetch-cookie');
+const fetchCookie = require('fetch-cookie').default;
 const cheerio = require('cheerio');
 
 /**
