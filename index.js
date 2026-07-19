@@ -1,6 +1,59 @@
 const { CookieJar } = require('tough-cookie');
-const fetchCookie = require('fetch-cookie').default;
+const fetchCookieModule = require('fetch-cookie');
+const fetchCookie = fetchCookieModule.default || fetchCookieModule;
 const cheerio = require('cheerio');
+
+/**
+ * Helper function to execute requests and follow redirects manually.
+ * This guarantees fetch-cookie intercepts intermediate Set-Cookie headers.
+ * 
+ * @param {Function} fetchFn Wrapped fetch function with cookie capabilities
+ * @param {String} url The initial destination target URL
+ * @param {Object} options Configuration parameters for the HTTP request
+ * @returns {Promise<Response>} The final HTTP response object
+ */
+async function fetchWithManualRedirects(fetchFn, url, options = {}) {
+    let currentUrl = url;
+    let method = options.method || 'GET';
+    let headers = options.headers ? { ...options.headers } : {};
+    let body = options.body;
+    
+    let redirectCount = 0;
+    const maxRedirects = 15;
+
+    while (redirectCount < maxRedirects) {
+        const response = await fetchFn(currentUrl, {
+            method,
+            headers,
+            body,
+            redirect: 'manual'
+        });
+
+        // Intercept HTTP redirect states (301, 302, 303, 307, 308)
+        if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get('location');
+            if (!location) {
+                return response; // No location header provided, break out and return
+            }
+
+            // Securely resolve relative redirect locations against the current URL context
+            currentUrl = new URL(location, currentUrl).toString();
+            redirectCount++;
+
+            // Standard HTTP specification processing: 301, 302, and 303 mutate POST requests into GET requests
+            if (response.status === 301 || response.status === 302 || response.status === 303) {
+                method = 'GET';
+                body = undefined;
+                if (headers['Content-Type']) {
+                    delete headers['Content-Type'];
+                }
+            }
+            continue;
+        }
+        return response;
+    }
+    throw new Error('Too many redirects');
+}
 
 /**
  * Signs in to a website through Steam
@@ -14,7 +67,6 @@ module.exports = function (url, cookies, callback) {
     let jar;
 
     if (Array.isArray(cookies)) {
-        // Replaced request.jar() with native tough-cookie CookieJar
         jar = new CookieJar();
 
         cookies.forEach(cookieStr => {
@@ -27,13 +79,16 @@ module.exports = function (url, cookies, callback) {
     // Wrap native fetch with the cookie jar
     const fetchWithCookie = fetchCookie(fetch, jar);
 
-    // Go to path for signing in through Steam and follow redirects
+    // Go to path for signing in through Steam and follow redirects manually
     (async () => {
         try {
-            const response = await fetchWithCookie(url, {
-                method: 'GET',
-                redirect: 'follow' // Replicates followAllRedirects: true
+            const response = await fetchWithManualRedirects(fetchWithCookie, url, {
+                method: 'GET'
             });
+
+            if (!response.ok) {
+                return callback(new Error(`HTTP Error on steam-openid-login: ${response.status} ${response.statusText}`));
+            }
 
             // Replaces response.request.uri.host with fetch equivalent
             const finalUrl = new URL(response.url);
@@ -56,7 +111,6 @@ module.exports = function (url, cookies, callback) {
             }
 
             const inputs = form.find('input');
-
             const formData = {};
 
             // Get form data
@@ -67,15 +121,13 @@ module.exports = function (url, cookies, callback) {
                 }
             });
 
-            // Send form to steam and follow redirects back to the website we are signing in to
-            const postResponse = await fetchWithCookie('https://steamcommunity.com/openid/login', {
+            // Send form to steam and manually hop across redirects back to the website we are signing in to
+            const postResponse = await fetchWithManualRedirects(fetchWithCookie, 'https://steamcommunity.com/openid/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                // Converts the original formData object into a URL-encoded string
-                body: new URLSearchParams(formData).toString(),
-                redirect: 'follow'
+                body: new URLSearchParams(formData).toString()
             });
 
             if (!postResponse.ok) {
